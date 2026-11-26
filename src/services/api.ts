@@ -10,21 +10,29 @@ export class ApiError extends Error {
   }
 }
 
-function messageForStatus(status: number): string {
+function messageForStatus(status: number, serverDetail?: string): string {
+  if (serverDetail) {
+    return serverDetail;
+  }
   switch (status) {
     case 400:
       return 'No pude procesar tu audio. Intenta grabar de nuevo.';
+    case 404:
+    case 405:
+      return `El endpoint /api/chat no respondió en el servidor (HTTP ${status}). Verifica el despliegue de FastAPI en Vercel.`;
     case 413:
       return 'La grabación es demasiado larga. Intenta con un mensaje más corto.';
     case 429:
       return 'Se alcanzó el límite de uso de la IA. Espera unos segundos e inténtalo otra vez.';
+    case 504:
+      return 'La respuesta tardó demasiado (timeout de 10s en Vercel). Intenta con un audio más corto.';
     default:
-      return 'NatIA tuvo un problema al responder. Inténtalo de nuevo en un momento.';
+      return `NatIA tuvo un problema al responder (HTTP ${status}). Inténtalo de nuevo en un momento.`;
   }
 }
 
 export function extensionForMime(mimeType: string): string {
-  if (mimeType.includes('mp4')) return 'mp4';
+  if (mimeType.includes('mp4') || mimeType.includes('m4a')) return 'mp4';
   if (mimeType.includes('ogg')) return 'ogg';
   if (mimeType.includes('wav')) return 'wav';
   return 'webm';
@@ -37,11 +45,11 @@ export async function sendChat(
   history: HistoryTurn[],
   signal?: AbortSignal,
 ): Promise<TutorResponse> {
-  const baseMime = mimeType.split(';')[0] || 'audio/webm';
+  const baseMime = mimeType.split(';')[0].trim() || 'audio/webm';
   const form = new FormData();
   form.append(
     'audio',
-    new File([audio], `recording.${extensionForMime(baseMime)}`, { type: mimeType }),
+    new File([audio], `recording.${extensionForMime(baseMime)}`, { type: baseMime }),
   );
   form.append('level', level);
   form.append('history', JSON.stringify(history.slice(-6)));
@@ -58,7 +66,16 @@ export async function sendChat(
   }
 
   if (!response.ok) {
-    throw new ApiError(messageForStatus(response.status), response.status);
+    let serverDetail: string | undefined;
+    try {
+      const errBody = (await response.json()) as { detail?: unknown };
+      if (typeof errBody?.detail === 'string' && errBody.detail.trim()) {
+        serverDetail = errBody.detail.trim();
+      }
+    } catch {
+      // Response body was not JSON (e.g. Vercel HTML gateway error)
+    }
+    throw new ApiError(messageForStatus(response.status, serverDetail), response.status);
   }
 
   try {

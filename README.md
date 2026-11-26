@@ -90,13 +90,14 @@ NatIA/
 ## Contrato de la API
 
 ### `GET /api/health`
-Verifica que el backend esté activo.
+Verifica que el backend esté activo y que la variable `GEMINI_API_KEY` esté configurada en el entorno (útil para diagnosticar despliegues en Vercel desde el navegador).
 - **Respuesta `200 OK`:**
   ```json
   {
     "status": "ok",
     "app": "NatIA",
-    "model": "gemini-2.5-flash"
+    "model": "gemini-2.5-flash",
+    "api_key_configured": true
   }
   ```
 
@@ -169,5 +170,7 @@ npm run build
 ## Despliegue en Vercel
 
 1. Conecta el repositorio en Vercel.
-2. En **Project Settings → Environment Variables**, agrega `GEMINI_API_KEY`.
-3. Vercel usará automáticamente `vercel.json` para servir `/api/(.*)` mediante la función serverless `api/index.py` y el resto de rutas con el build estático de React (`dist/`).
+2. En **Project Settings → Environment Variables**, agrega `GEMINI_API_KEY` (para Production, Preview y Development) y realiza un **Redeploy**.
+   - *(Importante: los archivos `.env` y `.env.local` están en `.gitignore` y no se suben a Vercel; si falta la variable en el panel de Vercel, `/api/chat` devolverá HTTP 500).*
+3. Verifica en tu navegador móvil `https://<tu-dominio>.vercel.app/api/health`: debe responder `{"status":"ok","app":"NatIA","model":"gemini-2.5-flash","api_key_configured":true}`.
+4. Vercel usará automáticamente `vercel.json` para servir `/api/(.*)` mediante la función serverless `api/index.py` (que acepta tanto `/api/chat` como `/chat`) y el resto de rutas con el build estático de React (`dist/`).
