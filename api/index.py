@@ -13,12 +13,10 @@ from pydantic import BaseModel, Field
 load_dotenv(".env.local")
 load_dotenv()
 
-GEMINI_MODEL = "gemini-2.5-flash"
+GEMINI_MODEL = "gemini-3.8-flash"
 MODELS_FALLBACK = [
-    "gemini-2.5-flash",
-    "gemini-2.5-flash-lite",
-    "gemini-2.0-flash",
-    "gemini-2.0-flash-lite",
+    "gemini-3.8-flash",
+    "gemini-3.8-flash-lite"
 ]
 MAX_AUDIO_BYTES = 4 * 1024 * 1024  # 4 MB limit (Vercel payload safety margin)
 MAX_HISTORY_TURNS = 6
