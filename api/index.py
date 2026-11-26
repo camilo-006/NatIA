@@ -13,8 +13,8 @@ from pydantic import BaseModel, Field
 load_dotenv(".env.local")
 load_dotenv()
 
-GEMINI_MODEL = "gemini-2.5-flash"
-MAX_AUDIO_BYTES = 4 * 1024 * 1024  # 4 MB limit (Vercel payload safety margin)
+GEMINI_MODEL = "gemini-3.8-flash"
+MAX_AUDIO_BYTES = 4 * 1024 * 1024  
 MAX_HISTORY_TURNS = 6
 ALLOWED_LEVELS = {"A1", "A2", "B1", "B2", "C1"}
 
@@ -32,7 +32,6 @@ MIME_ALIASES = {
     "audio/x-m4a": "audio/mp4",
     "audio/m4a": "audio/mp4",
     "audio/mp4a-latm": "audio/mp4",
-    "audio/aacp": "audio/aac",
     "video/mp4": "audio/mp4",
     "video/webm": "audio/webm",
     "audio/x-wav": "audio/wav",
@@ -99,34 +98,13 @@ class HistoryTurn(BaseModel):
 app = FastAPI(title="NatIA API")
 
 
-def detect_mime_from_bytes(audio_bytes: bytes) -> Optional[str]:
-    """Fallback magic-byte inspection for mobile browsers that omit or mislabel content-type."""
-    if audio_bytes.startswith(b"\x1a\x45\xdf\xa3"):
-        return "audio/webm"
-    if len(audio_bytes) >= 12 and audio_bytes[4:8] == b"ftyp":
-        return "audio/mp4"
-    if audio_bytes.startswith(b"OggS"):
-        return "audio/ogg"
-    if audio_bytes.startswith(b"RIFF") and audio_bytes[8:12] == b"WAVE":
-        return "audio/wav"
-    if audio_bytes.startswith(b"fLaC"):
-        return "audio/flac"
-    if audio_bytes.startswith((b"ID3", b"\xff\xfb", b"\xff\xf3", b"\xff\xf2")):
-        return "audio/mpeg"
-    return None
-
-
-def resolve_audio_mime_type(upload: UploadFile, audio_bytes: bytes) -> str:
+def resolve_audio_mime_type(upload: UploadFile) -> str:
     """Normalize the uploaded audio MIME type across desktop, Android, and iOS browsers."""
     raw_content_type = (upload.content_type or "").split(";", 1)[0].strip().lower()
     if raw_content_type and raw_content_type != "application/octet-stream":
         normalized = MIME_ALIASES.get(raw_content_type, raw_content_type)
         if normalized in SUPPORTED_AUDIO_MIME_TYPES:
             return normalized
-
-    sniffed = detect_mime_from_bytes(audio_bytes)
-    if sniffed:
-        return sniffed
 
     filename = (upload.filename or "").lower()
     _, ext = os.path.splitext(filename)
@@ -142,8 +120,8 @@ def resolve_audio_mime_type(upload: UploadFile, audio_bytes: bytes) -> str:
     raise HTTPException(
         status_code=status.HTTP_400_BAD_REQUEST,
         detail=(
-            f"Formato de audio no soportado ('{upload.content_type or 'desconocido'}'). "
-            "Formatos válidos: webm, mp4/m4a, ogg, wav, mp3, aac, flac."
+            f"Unsupported audio format: '{upload.content_type or 'unknown'}'. "
+            "Supported formats: webm, mp4/m4a, ogg, wav, mp3, aac, flac."
         ),
     )
 
@@ -155,13 +133,13 @@ def parse_history(raw_history: str) -> list[HistoryTurn]:
     except json.JSONDecodeError as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="El campo 'history' no contiene un JSON válido.",
+            detail="Invalid JSON in 'history' field.",
         ) from exc
 
     if not isinstance(decoded, list):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="El campo 'history' debe ser una lista JSON de turnos.",
+            detail="'history' must be a JSON array of conversation turns.",
         )
 
     turns: list[HistoryTurn] = []
@@ -171,7 +149,7 @@ def parse_history(raw_history: str) -> list[HistoryTurn]:
         except Exception as exc:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Cada turno del historial debe incluir 'role' ('user' o 'model') y 'text'.",
+                detail="Each history item must include 'role' ('user' or 'model') and 'text'.",
             ) from exc
         if turn.text.strip():
             turns.append(turn)
@@ -180,20 +158,12 @@ def parse_history(raw_history: str) -> list[HistoryTurn]:
 
 
 @app.get("/api/health")
-@app.get("/health")
-def health_check() -> dict[str, object]:
-    """Return basic service health status and whether GEMINI_API_KEY is configured."""
-    has_key = bool((os.environ.get("GEMINI_API_KEY") or "").strip().strip("\"'"))
-    return {
-        "status": "ok",
-        "app": "NatIA",
-        "model": GEMINI_MODEL,
-        "api_key_configured": has_key,
-    }
+def health_check() -> dict[str, str]:
+    """Return basic service health status."""
+    return {"status": "ok", "app": "NatIA", "model": GEMINI_MODEL}
 
 
 @app.post("/api/chat", response_model=TutorResponse)
-@app.post("/chat", response_model=TutorResponse)
 async def chat_with_tutor(
     audio: UploadFile = File(...),
     level: str = Form("B1"),
@@ -204,30 +174,30 @@ async def chat_with_tutor(
     if normalized_level not in ALLOWED_LEVELS:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Nivel MCER inválido '{level}'. Valores permitidos: A1, A2, B1, B2, C1.",
+            detail=f"Invalid CEFR level '{level}'. Allowed values: A1, A2, B1, B2, C1.",
         )
 
     audio_bytes = await audio.read()
     if not audio_bytes:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="El archivo de audio llegó vacío. Intenta grabar de nuevo.",
+            detail="Audio file is empty.",
         )
 
     if len(audio_bytes) > MAX_AUDIO_BYTES:
         raise HTTPException(
             status_code=413,
-            detail="El archivo de audio supera el límite de 4 MB.",
+            detail="Audio file exceeds the 4 MB limit.",
         )
 
-    mime_type = resolve_audio_mime_type(audio, audio_bytes)
+    mime_type = resolve_audio_mime_type(audio)
     recent_turns = parse_history(history)
 
-    api_key = (os.environ.get("GEMINI_API_KEY") or "").strip().strip("\"'")
+    api_key = os.environ.get("GEMINI_API_KEY")
     if not api_key:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Falta configurar la variable de entorno GEMINI_API_KEY en el servidor (Vercel).",
+            detail="GEMINI_API_KEY is not configured on the server.",
         )
 
     contents: list[types.Content] = [
@@ -261,16 +231,16 @@ async def chat_with_tutor(
         if exc.code == 429:
             raise HTTPException(
                 status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-                detail="Se alcanzó el límite de cuota de Gemini API. Espera unos segundos e inténtalo de nuevo.",
+                detail="Gemini API quota exceeded. Please try again shortly.",
             ) from exc
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error de Gemini API ({exc.code}): {exc.message or 'Error inesperado del modelo.'}",
+            detail=f"Gemini API error: {exc.message or 'Unexpected upstream error.'}",
         ) from exc
     except Exception as exc:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error al comunicarse con Gemini ({type(exc).__name__}): {exc}",
+            detail="Failed to communicate with Gemini API.",
         ) from exc
 
     if isinstance(response.parsed, TutorResponse):
@@ -282,10 +252,10 @@ async def chat_with_tutor(
         except Exception as exc:
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Gemini devolvió una respuesta con formato inesperado.",
+                detail="Gemini returned an invalid structured response.",
             ) from exc
 
     raise HTTPException(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-        detail="Gemini devolvió una respuesta vacía.",
+        detail="Gemini returned an empty response.",
     )
