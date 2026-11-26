@@ -16,7 +16,7 @@ load_dotenv()
 GEMINI_MODEL = "gemini-3.8-flash"
 MODELS_FALLBACK = [
     "gemini-3.8-flash",
-    "gemini-3.8-flash-lite"
+    "gemini-3.8-flash-lite",
 ]
 MAX_AUDIO_BYTES = 4 * 1024 * 1024  # 4 MB limit (Vercel payload safety margin)
 MAX_HISTORY_TURNS = 6
@@ -306,7 +306,7 @@ async def chat_with_tutor(
             ) from last_error
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Los servidores de Gemini están saturados, intenta en unos segundos.",
+            detail="Servidores de Gemini saturados, intenta en unos segundos.",
         ) from last_error
 
     if isinstance(response.parsed, TutorResponse):
