@@ -22,7 +22,7 @@ Aplicación Web Progresiva (PWA) para practicar conversación en inglés con una
 - **Backend Serverless con FastAPI y Gemini (`api/index.py`):**
   - Endpoint `GET /api/health` de verificación de estado.
   - Endpoint `POST /api/chat` (`multipart/form-data`) que procesa los bytes de audio junto con el nivel MCER y los últimos **6 turnos** de historial.
-  - Integración con el SDK oficial `google-genai` y **Structured Outputs** validados con Pydantic (`TutorResponse`).
+  - Integración con el SDK oficial `google-genai`, cadena automática de modelos de respaldo (`gemini-2.5-flash` → `gemini-2.5-flash-lite` → `gemini-2.0-flash` → `gemini-2.0-flash-lite`) ante picos de demanda (`503`) o límites de cuota (`429`), y **Structured Outputs** validados con Pydantic (`TutorResponse`).
 - **PWA Instalable (`vite-plugin-pwa`):**
   - Generación automática de `manifest.json`, *Service Worker* (`sw.js`) e iconos en `public/`.
 

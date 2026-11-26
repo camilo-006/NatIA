@@ -24,6 +24,8 @@ function messageForStatus(status: number, serverDetail?: string): string {
       return 'La grabación es demasiado larga. Intenta con un mensaje más corto.';
     case 429:
       return 'Se alcanzó el límite de uso de la IA. Espera unos segundos e inténtalo otra vez.';
+    case 503:
+      return 'Los servidores de Gemini están saturados en este momento. Intenta en unos segundos.';
     case 504:
       return 'La respuesta tardó demasiado (timeout de 10s en Vercel). Intenta con un audio más corto.';
     default:
