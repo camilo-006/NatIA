@@ -102,7 +102,6 @@ export function useAudioRecorder(options: UseAudioRecorderOptions = {}) {
           noiseSuppression: true,
           autoGainControl: true,
           channelCount: 1,
-          sampleRate: 16000,
         },
       });
     } catch (err) {
@@ -126,7 +125,7 @@ export function useAudioRecorder(options: UseAudioRecorderOptions = {}) {
       const mimeType = pickMimeType();
       const recorder = new MediaRecorder(stream, {
         ...(mimeType ? { mimeType } : {}),
-        audioBitsPerSecond: 24000,
+        audioBitsPerSecond: 32000,
       });
       recorder.ondataavailable = (event: BlobEvent) => {
         if (event.data.size > 0) chunksRef.current.push(event.data);

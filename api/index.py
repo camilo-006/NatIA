@@ -14,11 +14,11 @@ from pydantic import BaseModel, Field
 load_dotenv(".env.local")
 load_dotenv()
 
-GEMINI_MODEL = "gemini-3.5-flash-lite"
+GEMINI_MODEL = "gemini-3.8-flash"
 MODELS_FALLBACK = [
-    "gemini-3.5-flash-lite",
     "gemini-3.8-flash",
     "gemini-3.1-flash-lite",
+    "gemini-3.5-flash-lite",
 ]
 MAX_AUDIO_BYTES = 4 * 1024 * 1024  # 4 MB limit (Vercel payload safety margin)
 MAX_HISTORY_TURNS = 6
@@ -321,7 +321,12 @@ async def chat_with_tutor(
     contents.append(
         types.Content(
             role="user",
-            parts=[types.Part.from_bytes(data=audio_bytes, mime_type=mime_type)],
+            parts=[
+                types.Part.from_bytes(data=audio_bytes, mime_type=mime_type),
+                types.Part.from_text(
+                    text="Listen to this student's audio message and respond with the TutorResponse JSON."
+                ),
+            ],
         )
     )
 
@@ -331,8 +336,6 @@ async def chat_with_tutor(
         response_mime_type="application/json",
         response_schema=TutorResponse,
         temperature=0.6,
-        max_output_tokens=300,
-        thinking_config=types.ThinkingConfig(thinking_budget=0),
     )
 
     client = get_genai_client(api_key)
@@ -350,26 +353,8 @@ async def chat_with_tutor(
         except genai_errors.APIError as exc:
             last_error = exc
             err_text = (exc.message or str(exc)).lower()
-            if "thinking" in err_text and exc.code == 400:
-                try:
-                    fallback_config = types.GenerateContentConfig(
-                        system_instruction=system_instruction,
-                        response_mime_type="application/json",
-                        response_schema=TutorResponse,
-                        temperature=0.6,
-                        max_output_tokens=300,
-                    )
-                    response = await client.aio.models.generate_content(
-                        model=model_name,
-                        contents=contents,
-                        config=fallback_config,
-                    )
-                    break
-                except Exception as retry_exc:
-                    last_error = retry_exc
-                    continue
             is_retryable_on_fallback = (
-                exc.code in {404, 429, 500, 502, 503, 504}
+                exc.code in {400, 404, 429, 500, 502, 503, 504}
                 or "503" in err_text
                 or "429" in err_text
                 or "high demand" in err_text
