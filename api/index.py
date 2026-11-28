@@ -14,10 +14,10 @@ from pydantic import BaseModel, Field
 load_dotenv(".env.local")
 load_dotenv()
 
-GEMINI_MODEL = "gemini-3.8-flash"
+GEMINI_MODEL = "gemini-3.5-flash-lite"
 MODELS_FALLBACK = [
-    "gemini-3.8-flash",
     "gemini-3.5-flash-lite",
+    "gemini-3.8-flash",
     "gemini-3.1-flash-lite",
 ]
 MAX_AUDIO_BYTES = 4 * 1024 * 1024  # 4 MB limit (Vercel payload safety margin)
@@ -58,22 +58,27 @@ EXTENSION_MIME_FALLBACK = {
     ".flac": "audio/flac",
 }
 
-SYSTEM_PROMPT_TEMPLATE = """You are a friendly, natural, native English conversation tutor helping a Spanish-speaking student practice speaking.
+SYSTEM_PROMPT_TEMPLATE = """You are NatIA, a warm, curious, and natural native English conversation partner and tutor helping a Spanish-speaking student practice speaking.
 
 STUDENT LEVEL: {level} (CEFR standard).
-Adapt your vocabulary, grammar complexity, and expressions strictly to this level:
+Adapt your English vocabulary, grammar complexity, and expressions strictly to this level:
 - A1/A2: Use simple, everyday vocabulary and short, clear sentences.
 - B1/B2: Use natural conversational English, common phrasal verbs, and moderate complexity.
 - C1: Use idiomatic expressions, nuanced vocabulary, and natural native phrasing.
 
 RULES:
-1. Listen carefully to the user's audio (both grammar and pronunciation).
-2. Transcribe accurately what the user actually said in `user_transcript` (do not silently fix their mistakes in the transcript).
-3. Respond naturally to the conversation in `reply_en`. Keep it concise (1 to 3 short sentences) and encourage the conversation to continue with a natural follow-up question.
-4. Only set `has_error` to true if there is a clear grammatical, vocabulary, or pronunciation mistake. Do not nitpick minor filler words.
-5. If `has_error` is true, explain the correction clearly, briefly, and encouragingly in Spanish in `correction_es`, showing the corrected phrase. Otherwise, return null.
-6. Only fill `pronunciation_tip` (in Spanish) if you actually hear a noticeable pronunciation issue in the audio. Otherwise, return null.
-7. Never mix Spanish into `reply_en`. Never mix long English paragraphs into `correction_es`.
+1. Listen carefully to the user's audio (meaning, grammar, and pronunciation).
+2. Transcribe faithfully what the user actually said in `user_transcript` (do not silently fix their mistakes in the transcript).
+3. Be a genuine conversation partner in `reply_en`: react warmly to what the user shared, talk like a real friend, ask about their day, plans, or opinions, and keep the conversation flowing naturally in 1 to 2 short sentences in English ending with an engaging follow-up question.
+4. NEVER put grammar explanations, translations, or corrections inside `reply_en`. `reply_en` is ONLY for the natural English conversation.
+5. Set `has_error` to true whenever:
+   - The user makes a clear grammatical, word-order, or vocabulary mistake, OR
+   - The user explicitly asks in Spanish or English to be corrected, asks how to say something, or asks for feedback/help.
+   (Do not nitpick minor pauses or filler words).
+6. When `has_error` is true, write `correction_es` ALWAYS in natural, encouraging Spanish (1 to 2 short sentences, spoken-friendly), and ALWAYS wrap any English words or example phrases in double quotes `"..."` so the bilingual voice synthesizer pronounces those quoted segments in native English.
+   Example: Recuerda que para hacer una pregunta cambiamos el orden: en vez de decir "I am late?", di "Am I late?".
+   If `has_error` is false, set `correction_es` to null.
+7. Only fill `pronunciation_tip` (ALWAYS in Spanish, maximum 1 short sentence, wrapping English words in double quotes `"..."`) if you actually hear a clear pronunciation mistake in the audio. Otherwise, return null.
 """
 
 
@@ -325,6 +330,9 @@ async def chat_with_tutor(
         system_instruction=system_instruction,
         response_mime_type="application/json",
         response_schema=TutorResponse,
+        temperature=0.6,
+        max_output_tokens=300,
+        thinking_config=types.ThinkingConfig(thinking_budget=0),
     )
 
     client = get_genai_client(api_key)
@@ -333,7 +341,7 @@ async def chat_with_tutor(
 
     for model_name in MODELS_FALLBACK:
         try:
-            response = client.models.generate_content(
+            response = await client.aio.models.generate_content(
                 model=model_name,
                 contents=contents,
                 config=config,
@@ -342,6 +350,24 @@ async def chat_with_tutor(
         except genai_errors.APIError as exc:
             last_error = exc
             err_text = (exc.message or str(exc)).lower()
+            if "thinking" in err_text and exc.code == 400:
+                try:
+                    fallback_config = types.GenerateContentConfig(
+                        system_instruction=system_instruction,
+                        response_mime_type="application/json",
+                        response_schema=TutorResponse,
+                        temperature=0.6,
+                        max_output_tokens=300,
+                    )
+                    response = await client.aio.models.generate_content(
+                        model=model_name,
+                        contents=contents,
+                        config=fallback_config,
+                    )
+                    break
+                except Exception as retry_exc:
+                    last_error = retry_exc
+                    continue
             is_retryable_on_fallback = (
                 exc.code in {404, 429, 500, 502, 503, 504}
                 or "503" in err_text

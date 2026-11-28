@@ -97,7 +97,13 @@ export function useAudioRecorder(options: UseAudioRecorderOptions = {}) {
     let stream: MediaStream;
     try {
       stream = await navigator.mediaDevices.getUserMedia({
-        audio: { echoCancellation: true, noiseSuppression: true },
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+          channelCount: 1,
+          sampleRate: 16000,
+        },
       });
     } catch (err) {
       const name = err instanceof DOMException ? err.name : '';
@@ -120,7 +126,7 @@ export function useAudioRecorder(options: UseAudioRecorderOptions = {}) {
       const mimeType = pickMimeType();
       const recorder = new MediaRecorder(stream, {
         ...(mimeType ? { mimeType } : {}),
-        audioBitsPerSecond: 64000,
+        audioBitsPerSecond: 24000,
       });
       recorder.ondataavailable = (event: BlobEvent) => {
         if (event.data.size > 0) chunksRef.current.push(event.data);

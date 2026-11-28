@@ -4,6 +4,7 @@ import type { ChatTurn } from '../types/chat';
 interface MessageListProps {
   turns: ChatTurn[];
   onReplay: (text: string) => void;
+  onReplayFeedback: (correctionEs?: string | null, pronunciationTip?: string | null) => void;
   canSpeak: boolean;
 }
 
@@ -17,7 +18,7 @@ function SpeakerIcon() {
   );
 }
 
-export function MessageList({ turns, onReplay, canSpeak }: MessageListProps) {
+export function MessageList({ turns, onReplay, onReplayFeedback, canSpeak }: MessageListProps) {
   const endRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -62,18 +63,31 @@ export function MessageList({ turns, onReplay, canSpeak }: MessageListProps) {
 
             {/* Constructive feedback */}
             {showFeedback && (
-              <div className="rounded-2xl border border-[#F59E0B]/25 bg-[#F59E0B]/10 px-4 py-3 text-sm text-amber-100/90">
-                {turn.correction_es && (
-                  <p className="flex gap-2">
-                    <span aria-hidden="true">💡</span>
-                    <span>{turn.correction_es}</span>
-                  </p>
-                )}
-                {turn.pronunciation_tip && (
-                  <p className={`flex gap-2 ${turn.correction_es ? 'mt-2 border-t border-[#F59E0B]/15 pt-2' : ''}`}>
-                    <span aria-hidden="true">🗣️</span>
-                    <span>{turn.pronunciation_tip}</span>
-                  </p>
+              <div className="flex items-start justify-between gap-2 rounded-2xl border border-[#F59E0B]/25 bg-[#F59E0B]/10 px-4 py-3 text-sm text-amber-100/90">
+                <div className="flex-1">
+                  {turn.correction_es && (
+                    <p className="flex gap-2">
+                      <span aria-hidden="true">💡</span>
+                      <span>{turn.correction_es}</span>
+                    </p>
+                  )}
+                  {turn.pronunciation_tip && (
+                    <p className={`flex gap-2 ${turn.correction_es ? 'mt-2 border-t border-[#F59E0B]/15 pt-2' : ''}`}>
+                      <span aria-hidden="true">🗣️</span>
+                      <span>{turn.pronunciation_tip}</span>
+                    </p>
+                  )}
+                </div>
+                {canSpeak && (
+                  <button
+                    type="button"
+                    onClick={() => onReplayFeedback(turn.correction_es, turn.pronunciation_tip)}
+                    aria-label="Escuchar corrección en español"
+                    title="Escuchar corrección"
+                    className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-amber-400/30 bg-amber-500/10 text-amber-300 transition hover:bg-amber-500/25 active:scale-90"
+                  >
+                    <SpeakerIcon />
+                  </button>
                 )}
               </div>
             )}

@@ -59,7 +59,7 @@ export function App() {
         );
         const turn: ChatTurn = { ...result, id: crypto.randomUUID() };
         setTurns((prev) => [...prev, turn]);
-        speech.speak(result.reply_en);
+        speech.speakTurn(result.reply_en, result.correction_es, result.pronunciation_tip);
       } catch (error) {
         if (error instanceof DOMException && error.name === 'AbortError') return;
         setApiError(
@@ -201,7 +201,12 @@ export function App() {
             </p>
           </div>
         ) : (
-          <MessageList turns={turns} onReplay={speech.speak} canSpeak={speech.isSupported} />
+          <MessageList
+            turns={turns}
+            onReplay={speech.speak}
+            onReplayFeedback={speech.speakFeedback}
+            canSpeak={speech.isSupported}
+          />
         )}
       </main>
     </div>
