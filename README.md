@@ -1,6 +1,6 @@
 # NatIA — English Conversation Tutor PWA
 
-Aplicación Web Progresiva (PWA) para practicar conversación en inglés con una tutora nativa impulsada por **Google Gemini (`gemini-3.8-flash` / `gemini-3.8-flash-lite`)**. Combina interacción de voz estilo *Walkie-Talkie* en inglés con retroalimentación gramatical y de pronunciación en español.
+Aplicación Web Progresiva (PWA) para practicar conversación en inglés con una tutora nativa impulsada por **Google Gemini (`gemini-2.5-flash` / `gemini-2.5-flash-lite`)**. Combina interacción de voz estilo *Walkie-Talkie* en inglés con retroalimentación gramatical y de pronunciación en español.
 
 > **Fuente de verdad técnica:** [reglas.md](./reglas.md)
 
@@ -22,7 +22,7 @@ Aplicación Web Progresiva (PWA) para practicar conversación en inglés con una
 - **Backend Serverless con FastAPI y Gemini (`api/index.py`):**
   - Endpoint `GET /api/health` de verificación de estado.
   - Endpoint `POST /api/chat` (`multipart/form-data`) que procesa los bytes de audio junto con el nivel MCER y los últimos **6 turnos** de historial.
-  - Integración con el SDK oficial `google-genai`, cadena automática de modelos de respaldo (`gemini-3.8-flash` → `gemini-3.8-flash-lite`) ante picos de demanda (`503`) o límites de cuota (`429`), y **Structured Outputs** validados con Pydantic (`TutorResponse`).
+  - Integración con el SDK oficial `google-genai`, cadena automática de modelos de respaldo (`gemini-2.5-flash` → `gemini-2.5-flash-lite`) ante picos de demanda (`503`) o límites de cuota (`429`), y **Structured Outputs** validados con Pydantic (`TutorResponse`).
 - **PWA Instalable (`vite-plugin-pwa`):**
   - Generación automática de `manifest.json`, *Service Worker* (`sw.js`) e iconos en `public/`.
 
@@ -44,7 +44,7 @@ Aplicación Web Progresiva (PWA) para practicar conversación en inglés con una
 | **Audio Entrada** | `MediaRecorder API` + `Web Audio API` | Detección dinámica de formato + análisis RMS en tiempo real. |
 | **Audio Salida** | `Web Speech API` (`speechSynthesis`) | Selección automática de voz `en-US` / `en-GB` + warm-up iOS. |
 | **Backend** | Python + FastAPI | Función Serverless en `/api/index.py`. |
-| **IA** | `google-genai` (`gemini-3.8-flash` / `gemini-3.8-flash-lite`) | Audio multimodal + `response_schema=TutorResponse` (Pydantic v2). |
+| **IA** | `google-genai` (`gemini-2.5-flash` / `gemini-2.5-flash-lite`) | Audio multimodal + `response_schema=TutorResponse` (Pydantic v2). |
 | **Despliegue** | Vercel | Frontend estático + FastAPI Serverless en el mismo repositorio. |
 
 ---
@@ -96,8 +96,8 @@ Verifica que el backend esté activo y que la variable `GEMINI_API_KEY` esté co
   {
     "status": "ok",
     "app": "NatIA",
-    "model": "gemini-3.8-flash",
-    "fallback_models": ["gemini-3.8-flash", "gemini-3.8-flash-lite"],
+    "model": "gemini-2.5-flash",
+    "fallback_models": ["gemini-2.5-flash", "gemini-2.5-flash-lite"],
     "api_key_configured": true
   }
   ```
@@ -173,5 +173,5 @@ npm run build
 1. Conecta el repositorio en Vercel.
 2. En **Project Settings → Environment Variables**, agrega `GEMINI_API_KEY` (para Production, Preview y Development) y realiza un **Redeploy**.
    - *(Importante: los archivos `.env` y `.env.local` están en `.gitignore` y no se suben a Vercel; si falta la variable en el panel de Vercel, `/api/chat` devolverá HTTP 500).*
-3. Verifica en tu navegador móvil `https://<tu-dominio>.vercel.app/api/health`: debe responder `{"status":"ok","app":"NatIA","model":"gemini-3.8-flash","fallback_models":["gemini-3.8-flash","gemini-3.8-flash-lite"],"api_key_configured":true}`.
+3. Verifica en tu navegador móvil `https://<tu-dominio>.vercel.app/api/health`: debe responder `{"status":"ok","app":"NatIA","model":"gemini-2.5-flash","fallback_models":["gemini-2.5-flash","gemini-2.5-flash-lite"],"api_key_configured":true}`.
 4. Vercel usará automáticamente `vercel.json` para servir `/api/(.*)` mediante la función serverless `api/index.py` (que acepta tanto `/api/chat` como `/chat`) y el resto de rutas con el build estático de React (`dist/`).

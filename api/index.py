@@ -1,3 +1,4 @@
+from functools import lru_cache
 import json
 import mimetypes
 import os
@@ -13,10 +14,10 @@ from pydantic import BaseModel, Field
 load_dotenv(".env.local")
 load_dotenv()
 
-GEMINI_MODEL = "gemini-3.8-flash"
+GEMINI_MODEL = "gemini-2.5-flash"
 MODELS_FALLBACK = [
-    "gemini-3.8-flash",
-    "gemini-3.8-flash-lite",
+    "gemini-2.5-flash",
+    "gemini-2.5-flash-lite",
 ]
 MAX_AUDIO_BYTES = 4 * 1024 * 1024  # 4 MB limit (Vercel payload safety margin)
 MAX_HISTORY_TURNS = 6
@@ -101,6 +102,75 @@ class HistoryTurn(BaseModel):
 
 
 app = FastAPI(title="NatIA API")
+
+
+@lru_cache(maxsize=4)
+def get_genai_client(api_key: str) -> genai.Client:
+    """Return a cached Gemini SDK client for the configured API key."""
+    return genai.Client(api_key=api_key)
+
+
+def raise_for_gemini_error(exc: Exception) -> None:
+    """Translate a final Gemini SDK exception into an accurate HTTPException."""
+    if isinstance(exc, genai_errors.APIError):
+        code = exc.code or 500
+        msg = (exc.message or str(exc)).strip()
+        lower_msg = msg.lower()
+
+        if code in {401, 403} or "api_key_invalid" in lower_msg or "api key not valid" in lower_msg:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="La GEMINI_API_KEY es inválida o no tiene permisos. Verifica tu clave en Google AI Studio.",
+            ) from exc
+
+        if code == 404:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=f"El modelo de Gemini configurado no fue encontrado en la API (404): {msg}",
+            ) from exc
+
+        if code == 429 or "resource_exhausted" in lower_msg or "quota" in lower_msg:
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail="Se alcanzó el límite de cuota o peticiones por minuto de tu GEMINI_API_KEY (HTTP 429). Espera unos segundos e inténtalo de nuevo.",
+            ) from exc
+
+        if code == 400 or "invalid_argument" in lower_msg:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Gemini rechazó el audio o los parámetros enviados (400): {msg}",
+            ) from exc
+
+        if code == 504 or "deadline_exceeded" in lower_msg or "timeout" in lower_msg:
+            raise HTTPException(
+                status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+                detail="Gemini tardó demasiado en responder (HTTP 504). Intenta con un audio más corto.",
+            ) from exc
+
+        if code in {500, 502, 503} or any(
+            token in lower_msg for token in ("503", "high demand", "overloaded", "unavailable")
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Los servidores de Gemini están temporalmente saturados (HTTP 503). Intenta en unos segundos.",
+            ) from exc
+
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Error de Gemini API ({code}): {msg or 'Error inesperado del proveedor.'}",
+        ) from exc
+
+    err_text = str(exc).lower()
+    if "timeout" in err_text or "timed out" in err_text:
+        raise HTTPException(
+            status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+            detail="Tiempo de espera agotado al conectar con Gemini (HTTP 504). Intenta con un audio más corto.",
+        ) from exc
+
+    raise HTTPException(
+        status_code=status.HTTP_502_BAD_GATEWAY,
+        detail=f"Error de red al comunicarse con Gemini ({type(exc).__name__}): {exc}",
+    ) from exc
 
 
 def detect_mime_from_bytes(audio_bytes: bytes) -> Optional[str]:
@@ -256,7 +326,7 @@ async def chat_with_tutor(
         response_schema=TutorResponse,
     )
 
-    client = genai.Client(api_key=api_key)
+    client = get_genai_client(api_key)
     response = None
     last_error: Optional[Exception] = None
 
@@ -271,20 +341,18 @@ async def chat_with_tutor(
         except genai_errors.APIError as exc:
             last_error = exc
             err_text = (exc.message or str(exc)).lower()
-            is_retryable = (
+            is_retryable_on_fallback = (
                 exc.code in {404, 429, 500, 502, 503, 504}
                 or "503" in err_text
+                or "429" in err_text
                 or "high demand" in err_text
                 or "overloaded" in err_text
                 or "unavailable" in err_text
                 or "resource_exhausted" in err_text
             )
-            if is_retryable:
+            if is_retryable_on_fallback:
                 continue
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Error de Gemini API ({exc.code}): {exc.message or 'Error inesperado del modelo.'}",
-            ) from exc
+            raise_for_gemini_error(exc)
         except Exception as exc:
             last_error = exc
             err_text = str(exc).lower()
@@ -293,21 +361,15 @@ async def chat_with_tutor(
                 for token in ("503", "429", "high demand", "overloaded", "unavailable", "timeout")
             ):
                 continue
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Error al comunicarse con Gemini ({type(exc).__name__}): {exc}",
-            ) from exc
+            raise_for_gemini_error(exc)
 
     if response is None:
-        if isinstance(last_error, genai_errors.APIError) and last_error.code == 429:
-            raise HTTPException(
-                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-                detail="Se alcanzó el límite de cuota en los modelos de Gemini. Espera unos segundos e inténtalo de nuevo.",
-            ) from last_error
+        if last_error is not None:
+            raise_for_gemini_error(last_error)
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Servidores de Gemini saturados, intenta en unos segundos.",
-        ) from last_error
+            detail="Los servidores de Gemini no están disponibles en este momento.",
+        )
 
     if isinstance(response.parsed, TutorResponse):
         return response.parsed
@@ -317,11 +379,11 @@ async def chat_with_tutor(
             return TutorResponse.model_validate_json(response.text)
         except Exception as exc:
             raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                status_code=status.HTTP_502_BAD_GATEWAY,
                 detail="Gemini devolvió una respuesta con formato inesperado.",
             ) from exc
 
     raise HTTPException(
-        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        status_code=status.HTTP_502_BAD_GATEWAY,
         detail="Gemini devolvió una respuesta vacía.",
     )

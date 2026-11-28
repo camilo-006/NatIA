@@ -17,17 +17,22 @@ function messageForStatus(status: number, serverDetail?: string): string {
   switch (status) {
     case 400:
       return 'No pude procesar tu audio. Intenta grabar de nuevo.';
+    case 401:
+    case 403:
+      return 'La clave GEMINI_API_KEY configurada no es válida o no tiene permisos.';
     case 404:
     case 405:
       return `El endpoint /api/chat no respondió en el servidor (HTTP ${status}). Verifica el despliegue de FastAPI en Vercel.`;
     case 413:
       return 'La grabación es demasiado larga. Intenta con un mensaje más corto.';
     case 429:
-      return 'Se alcanzó el límite de uso de la IA. Espera unos segundos e inténtalo otra vez.';
+      return 'Se alcanzó el límite de cuota de Gemini (HTTP 429). Espera unos segundos e inténtalo otra vez.';
+    case 502:
+      return 'Error de comunicación con la API de Gemini (HTTP 502). Inténtalo de nuevo.';
     case 503:
-      return 'Los servidores de Gemini están saturados en este momento. Intenta en unos segundos.';
+      return 'Los servidores de Gemini están saturados en este momento (HTTP 503). Intenta en unos segundos.';
     case 504:
-      return 'La respuesta tardó demasiado (timeout de 10s en Vercel). Intenta con un audio más corto.';
+      return 'La respuesta tardó demasiado (timeout en el servidor). Intenta con un audio más corto.';
     default:
       return `NatIA tuvo un problema al responder (HTTP ${status}). Inténtalo de nuevo en un momento.`;
   }
